@@ -1,0 +1,338 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Dashboard Completo de Ocorrências</title>
+<script type="text/javascript" src="https://www.gstatic.com/charts/loader.js"></script>
+<style>
+  body {
+    background-color: #fff;
+    color: #004080; /* azul escuro */
+    font-family: Arial, sans-serif;
+    text-align: center;
+    padding: 20px;
+  }
+  h1 {
+    color: #003366; /* azul mais escuro */
+    margin-bottom: 15px;
+  }
+  .filters {
+    margin: 15px auto;
+    max-width: 900px;
+    display: flex;
+    justify-content: center;
+    gap: 15px;
+    flex-wrap: wrap;
+  }
+  .filters label {
+    font-weight: bold;
+    color: #0059b3; /* azul médio */
+  }
+  .filters select, .filters input {
+    padding: 5px;
+    border-radius: 5px;
+    border: 1px solid #0059b3;
+    width: 180px;
+    color: #004080;
+    font-weight: 600;
+  }
+  button {
+    background-color: #0059b3;
+    border: none;
+    color: white;
+    font-weight: bold;
+    padding: 7px 15px;
+    border-radius: 7px;
+    cursor: pointer;
+    transition: background-color 0.3s ease;
+  }
+  button:hover {
+    background-color: #003d80;
+  }
+  .charts-wrapper {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 25px;
+    max-width: 1200px;
+    margin: 30px auto 0;
+  }
+  .chart-container {
+    background-color: #f0f8ff; /* azul claro */
+    border-radius: 10px;
+    padding: 20px;
+    width: 45%;
+    min-width: 300px;
+    box-shadow: 0 0 15px rgba(0, 89, 179, 0.3);
+  }
+  h2 {
+    color: #003366;
+    margin-bottom: 15px;
+  }
+</style>
+</head>
+<body>
+
+<h1>📊 Dashboard Completo de Ocorrências</h1>
+
+<div class="filters">
+  <label for="startDate">Data Início:</label>
+  <input type="date" id="startDate" />
+  
+  <label for="endDate">Data Fim:</label>
+  <input type="date" id="endDate" />
+  
+  <label for="filterTipo">Tipo de Ocorrência:</label>
+  <select id="filterTipo">
+    <option value="todos">Todas</option>
+    <option value="Assalto a Banco">Assalto a Banco</option>
+    <option value="Gerenciamento de Crise">Gerenciamento de Crise</option>
+    <option value="Posse/ Porte Ilegal de Arma de Fogo">Posse/ Porte Ilegal de Arma de Fogo</option>
+    <option value="Roubo">Roubo</option>
+    <option value="Cumprimento de Mandado de Prisão em Aberto">Cumprimento de Mandado de Prisão em Aberto</option>
+  </select>
+  
+  <label for="filterVtr">Viatura:</label>
+  <select id="filterVtr">
+    <option value="todos">Todas</option>
+    <option value="BOPE 01">BOPE 01</option>
+    <option value="BOPE 02">BOPE 02</option>
+    <option value="BOPE 04">BOPE 04</option>
+    <option value="BOPE 10">BOPE 10</option>
+  </select>
+  
+  <label for="filterEquipe">Equipe:</label>
+  <select id="filterEquipe">
+    <option value="todos">Todas</option>
+    <option value="ALPHA">ALPHA</option>
+    <option value="BRAV">BRAV</option>
+    <option value="CHARLIE">CHARLIE</option>
+    <option value="DELTA">DELTA</option>
+  </select>
+  
+  <button id="btnFiltrar">Filtrar</button>
+  <button id="btnExportar">Exportar CSV</button>
+</div>
+
+<div class="charts-wrapper">
+  <div class="chart-container" id="tipoChart"></div>
+  <div class="chart-container" id="vtrChart"></div>
+  <div class="chart-container" id="localChart"></div>
+  <div class="chart-container" id="horaChart"></div>
+</div>
+
+<script>
+  google.charts.load('current', { packages: ['corechart', 'bar'] });
+  let dadosOriginais = [];
+  let cabecalhos = [];
+
+  const planilhaCSV = "https://docs.google.com/spreadsheets/d/16cr6YMSPg6M9lY87iPw_KVD9vZ3OfhBYWmwJfBC3hvE/gviz/tq?tqx=out:csv";
+
+  function parseCSV(text) {
+    const linhas = text.trim().split('\n');
+    const result = [];
+    const headers = linhas[0].split(',');
+    for(let i=1; i<linhas.length; i++) {
+      const obj = {};
+      const currentline = linhas[i].split(',');
+      for(let j=0; j<headers.length; j++) {
+        obj[headers[j]] = currentline[j];
+      }
+      result.push(obj);
+    }
+    return {headers, data: result};
+  }
+
+  function contar(dados, campo) {
+    const contagem = {};
+    dados.forEach(item => {
+      let val = item[campo] || "Não informado";
+      contagem[val] = (contagem[val] || 0) + 1;
+    });
+    return contagem;
+  }
+
+  function agruparFaixaHorario(dados, campo) {
+    const faixas = {
+      'Madrugada': [0,5],
+      'Manhã': [6,11],
+      'Tarde': [12,17],
+      'Noite': [18,23]
+    };
+    const contagem = { 'Madrugada':0, 'Manhã':0, 'Tarde':0, 'Noite':0, 'Não informado':0 };
+
+    dados.forEach(item => {
+      const hStr = item[campo];
+      if(!hStr) {
+        contagem['Não informado']++;
+        return;
+      }
+      const match = hStr.match(/(\d{1,2})/);
+      if(!match) {
+        contagem['Não informado']++;
+        return;
+      }
+      const hora = parseInt(match[1], 10);
+      if(isNaN(hora)) {
+        contagem['Não informado']++;
+        return;
+      }
+      for(let faixa in faixas) {
+        const [min, max] = faixas[faixa];
+        if(hora >= min && hora <= max) {
+          contagem[faixa]++;
+          return;
+        }
+      }
+      contagem['Não informado']++;
+    });
+    return contagem;
+  }
+
+  function desenharGraficoPizza(id, dados, titulo) {
+    const dataArray = [['Categoria', 'Quantidade']];
+    for(const key in dados) {
+      dataArray.push([key, dados[key]]);
+    }
+    const data = google.visualization.arrayToDataTable(dataArray);
+    const options = {
+      title: titulo,
+      backgroundColor: '#f0f8ff',
+      titleTextStyle: { color: '#003366' },
+      legend: { textStyle: { color: '#004080' } },
+      pieSliceTextStyle: { color: '#003366' },
+      colors: ['#0059b3', '#1e90ff', '#3399ff', '#66b2ff', '#99ccff', '#cce6ff']
+    };
+    const chart = new google.visualization.PieChart(document.getElementById(id));
+    chart.draw(data, options);
+  }
+
+  function desenharGraficoBarra(id, dados, titulo) {
+    const dataArray = [['Categoria', 'Quantidade']];
+    for(const key in dados) {
+      dataArray.push([key, dados[key]]);
+    }
+    const data = google.visualization.arrayToDataTable(dataArray);
+    const options = {
+      title: titulo,
+      backgroundColor: '#f0f8ff',
+      titleTextStyle: { color: '#003366' },
+      legend: { position: 'none' },
+      hAxis: { textStyle: { color: '#004080' } },
+      vAxis: { textStyle: { color: '#004080' } },
+      colors: ['#0073e6']
+    };
+    const chart = new google.visualization.ColumnChart(document.getElementById(id));
+    chart.draw(data, options);
+  }
+
+  function carregarDados() {
+    fetch(planilhaCSV)
+      .then(res => res.text())
+      .then(text => {
+        const parsed = parseCSV(text);
+        cabecalhos = parsed.headers;
+        dadosOriginais = parsed.data;
+
+        // Definir datas padrão nos filtros
+        let datas = dadosOriginais.map(d => d['Data'] || '').filter(d => d);
+        datas.sort();
+        if(datas.length) {
+          document.getElementById('startDate').value = datas[0];
+          document.getElementById('endDate').value = datas[datas.length-1];
+        }
+
+        filtrarEDesenhar();
+      })
+      .catch(err => {
+        console.error("Erro ao carregar dados:", err);
+        alert("Erro ao carregar os dados da planilha. Verifique se está pública.");
+      });
+  }
+
+  function filtrarEDesenhar() {
+    const dataInicio = document.getElementById('startDate').value;
+    const dataFim = document.getElementById('endDate').value;
+    const filtroTipo = document.getElementById('filterTipo').value;
+    const filtroVtr = document.getElementById('filterVtr').value;
+    const filtroEquipe = document.getElementById('filterEquipe').value;
+
+    const dadosFiltrados = dadosOriginais.filter(d => {
+      const data = d['Data'] || '';
+      const tipo = d['Tipo'] || '';
+      const vtr = d['Viatura'] || '';
+      const equipe = d['Equipe'] || '';
+
+      const dataOk = (!dataInicio || data >= dataInicio) && (!dataFim || data <= dataFim);
+      const tipoOk = filtroTipo === 'todos' || tipo === filtroTipo;
+      const vtrOk = filtroVtr === 'todos' || vtr === filtroVtr;
+      const equipeOk = filtroEquipe === 'todos' || equipe.toUpperCase() === filtroEquipe.toUpperCase();
+
+      return dataOk && tipoOk && vtrOk && equipeOk;
+    });
+
+    const tipos = contar(dadosFiltrados, 'Tipo');
+    const vtrs = contar(dadosFiltrados, 'Viatura');
+    const locais = contar(dadosFiltrados, 'Local');
+    const horarios = agruparFaixaHorario(dadosFiltrados, 'Hora');
+
+    desenharGraficoPizza('tipoChart', tipos, 'Tipos de Ocorrência');
+    desenharGraficoBarra('vtrChart', vtrs, 'Viaturas Empregadas');
+    desenharGraficoPizza('localChart', locais, 'Locais de Ocorrência');
+    desenharGraficoBarra('horaChart', horarios, 'Faixa Horária da Ocorrência');
+  }
+
+  function exportarCSV() {
+    const dataInicio = document.getElementById('startDate').value;
+    const dataFim = document.getElementById('endDate').value;
+    const filtroTipo = document.getElementById('filterTipo').value;
+    const filtroVtr = document.getElementById('filterVtr').value;
+    const filtroEquipe = document.getElementById('filterEquipe').value;
+
+    const dadosFiltrados = dadosOriginais.filter(d => {
+      const data = d['Data'] || '';
+      const tipo = d['Tipo'] || '';
+      const vtr = d['Viatura'] || '';
+      const equipe = d['Equipe'] || '';
+
+      const dataOk = (!dataInicio || data >= dataInicio) && (!dataFim || data <= dataFim);
+      const tipoOk = filtroTipo === 'todos' || tipo === filtroTipo;
+      const vtrOk = filtroVtr === 'todos' || vtr === filtroVtr;
+      const equipeOk = filtroEquipe === 'todos' || equipe.toUpperCase() === filtroEquipe.toUpperCase();
+
+      return dataOk && tipoOk && vtrOk && equipeOk;
+    });
+
+    if(dadosFiltrados.length === 0){
+      alert("Nenhum dado para exportar com os filtros atuais.");
+      return;
+    }
+
+    const linhas = [];
+    linhas.push(cabecalhos.join(','));
+    dadosFiltrados.forEach(row => {
+      const linha = cabecalhos.map(h => `"${(row[h] || '').replace(/"/g, '""')}"`);
+      linhas.push(linha.join(','));
+    });
+
+    const csvContent = linhas.join('\n');
+    const blob = new Blob([csvContent], {type: 'text/csv;charset=utf-8;'});
+    const url = URL.createObjectURL(blob);
+
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'dados_ocorrencias_filtrados.csv';
+    a.click();
+    URL.revokeObjectURL(url);
+  }
+
+  document.getElementById('btnFiltrar').addEventListener('click', filtrarEDesenhar);
+  document.getElementById('btnExportar').addEventListener('click', exportarCSV);
+
+  google.charts.load('current', { packages: ['corechart', 'bar'] });
+  google.charts.setOnLoadCallback(carregarDados);
+</script>
+
+</body>
+</html>
